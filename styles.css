@@ -1,0 +1,162 @@
+:root {
+  color-scheme: light;
+  --bg: #f3f7fb;
+  --card: #ffffff;
+  --primary: #0a6db5;
+  --primary-dark: #055089;
+  --border: #d3deea;
+  --text: #1d2a36;
+  --danger: #d53232;
+  --warn: #d98007;
+  --ok: #1f8a3a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.hero {
+  background: linear-gradient(135deg, #0a6db5, #0f8e7a);
+  color: #fff;
+  padding: 42px 20px;
+}
+
+.hero-content {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.hero h1 {
+  margin: 0 0 10px;
+}
+
+.credit {
+  font-weight: 600;
+}
+
+.workspace {
+  max-width: 1100px;
+  margin: 20px auto 40px;
+  padding: 0 12px;
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 4px 14px rgba(10, 109, 181, 0.08);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+button {
+  border: none;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.primary-btn {
+  background: var(--primary);
+  color: #fff;
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.secondary-btn {
+  background: #e9f1f8;
+  color: #0d4f7f;
+}
+
+.canvas-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+figure {
+  margin: 0;
+}
+
+figcaption {
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+  color: #4f6070;
+}
+
+canvas {
+  width: 100%;
+  border: 1px solid #c6d6e6;
+  border-radius: 10px;
+  background: #f7fafc;
+}
+
+.diagnosis-list {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.diagnosis-list li.alert {
+  color: var(--danger);
+}
+
+.diagnosis-list li.warn {
+  color: var(--warn);
+}
+
+.diagnosis-list li.ok {
+  color: var(--ok);
+}
+
+.measure-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.measure-row input {
+  width: 110px;
+  padding: 8px;
+  border: 1px solid #b7c9dc;
+  border-radius: 8px;
+}
+
+.work-length {
+  margin: 14px 0 0;
+  font-weight: 600;
+}
+
+.hint {
+  color: #546779;
+  margin-bottom: 0;
+}
+
+.disclaimer {
+  border-inline-start: 4px solid var(--warn);
+}

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EndoDiag | تشخيص صور المداواة اللبية</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-content">
+        <h1>منصة EndoDiag لتقييم الصور الشعاعية الذروية</h1>
+        <p>
+          فكرة الموقع: دعم طبيب الأسنان بمؤشرات أولية في تفسير الصور الشعاعية
+          المتعلقة بالمداواة اللبية.
+        </p>
+        <p class="credit">تصميم وبرمجة د. مهند النشواتي</p>
+        <button id="startBtn" class="primary-btn">ابدأ الآن</button>
+      </div>
+    </header>
+
+    <main id="workspace" class="workspace">
+      <section class="card">
+        <h2>1) اختيار صورة شعاعية ذروية</h2>
+        <input id="imageInput" type="file" accept="image/*" />
+        <p class="hint">
+          يفضّل استخدام صورة واضحة بامتداد PNG أو JPG ومن دون ضغط شديد.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2) المعالجة والتحليل</h2>
+        <div class="actions">
+          <button id="analyzeBtn" class="primary-btn" disabled>معالجة وتشخيص</button>
+          <button id="resetBtn" class="secondary-btn" disabled>إعادة ضبط</button>
+          <button id="exportBtn" class="secondary-btn" disabled>حفظ صورة النتائج</button>
+        </div>
+        <div class="canvas-grid">
+          <figure>
+            <figcaption>الصورة الأصلية</figcaption>
+            <canvas id="sourceCanvas" width="640" height="420"></canvas>
+          </figure>
+          <figure>
+            <figcaption>الصورة المعالجة مع تحديد المناطق</figcaption>
+            <canvas id="resultCanvas" width="640" height="420"></canvas>
+          </figure>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) النتيجة التشخيصية المبدئية</h2>
+        <ul id="diagnosisList" class="diagnosis-list">
+          <li>لا توجد نتائج بعد. ارفع صورة ثم اضغط "معالجة وتشخيص".</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>4) تحديد الطول العامل التقريبي</h2>
+        <p>
+          أدخل قيمة المعايرة (مم لكل بكسل)، ثم انقر نقطتين على لوحة النتائج
+          (نقطة مرجعية تاجية ثم ذروة الجذر).
+        </p>
+        <div class="measure-row">
+          <label for="mmPerPixel">مم / بكسل</label>
+          <input id="mmPerPixel" type="number" min="0.001" step="0.001" value="0.02" />
+          <button id="clearMeasureBtn" class="secondary-btn">مسح القياس</button>
+        </div>
+        <p id="workLengthOutput" class="work-length">لم يتم القياس بعد.</p>
+      </section>
+
+      <section class="card disclaimer">
+        <h2>تنبيه مهني مهم</h2>
+        <p>
+          هذه المنصة أداة مساعدة تعليمية/بحثية ولا تُعد بديلاً عن التشخيص السريري
+          الكامل أو قرار الطبيب المختص. يجب تأكيد أي نتيجة بالفحص السريري
+          والاختبارات اللبية والشعاعية المناسبة.
+        </p>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
