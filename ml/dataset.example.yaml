@@ -1,0 +1,10 @@
+path: /absolute/path/to/dataset
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: class_ii_caries
+  1: apical_lesion
+  2: pdl_widening
+  3: resorption

@@ -8,6 +8,10 @@ const mmPerPixelInput = document.getElementById("mmPerPixel");
 const diagnosisList = document.getElementById("diagnosisList");
 const reportBox = document.getElementById("reportBox");
 const workLengthOutput = document.getElementById("workLengthOutput");
+const analysisMode = document.getElementById("analysisMode");
+const backendUrlInput = document.getElementById("backendUrl");
+const checkApiBtn = document.getElementById("checkApiBtn");
+const apiStatus = document.getElementById("apiStatus");
 
 const sourceCanvas = document.getElementById("sourceCanvas");
 const resultCanvas = document.getElementById("resultCanvas");
@@ -18,11 +22,14 @@ let imageReady = false;
 let measurePoints = [];
 let latestFindings = [];
 let latestGray = null;
+let currentImageFile = null;
+let lastResultSnapshot = null;
 
 startBtn.addEventListener("click", () => {
   document.getElementById("workspace").scrollIntoView({ behavior: "smooth" });
 });
 
+checkApiBtn.addEventListener("click", checkApiHealth);
 imageInput.addEventListener("change", handleImageSelect);
 analyzeBtn.addEventListener("click", runAnalysis);
 resetBtn.addEventListener("click", resetAll);
@@ -30,10 +37,38 @@ exportBtn.addEventListener("click", exportResults);
 clearMeasureBtn.addEventListener("click", clearMeasurePoints);
 resultCanvas.addEventListener("click", captureMeasurePoint);
 
+async function checkApiHealth() {
+  const base = backendUrlInput.value.trim().replace(/\/$/, "");
+  if (!base) {
+    setApiStatus("يرجى إدخال رابط API صحيح.", "alert");
+    return;
+  }
+
+  setApiStatus("جاري فحص الاتصال...", "warn");
+  try {
+    const response = await fetch(`${base}/health`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "API error");
+
+    if (!data.model_loaded) {
+      setApiStatus(
+        `API متاح لكن النموذج غير محمّل. المسار الحالي: ${data.model_path}`,
+        "warn"
+      );
+      return;
+    }
+
+    setApiStatus(`متصل ✅ النموذج: ${data.model_name}`, "ok");
+  } catch (error) {
+    setApiStatus(`فشل الاتصال: ${error.message}`, "alert");
+  }
+}
+
 function handleImageSelect(event) {
   const file = event.target.files?.[0];
   if (!file) return;
 
+  currentImageFile = file;
   const image = new Image();
   image.onload = () => {
     drawImageContain(sourceCtx, image, sourceCanvas.width, sourceCanvas.height);
@@ -44,6 +79,7 @@ function handleImageSelect(event) {
     exportBtn.disabled = true;
     latestGray = null;
     latestFindings = [];
+    lastResultSnapshot = null;
     clearMeasurePoints();
     setDiagnosis(["تم تحميل الصورة بنجاح. اضغط زر المعالجة والتشخيص للمتابعة."], "ok");
     setReportPlaceholder();
@@ -51,9 +87,169 @@ function handleImageSelect(event) {
   image.src = URL.createObjectURL(file);
 }
 
-function runAnalysis() {
+async function runAnalysis() {
   if (!imageReady) return;
 
+  if (analysisMode.value === "ai") {
+    await runAiAnalysis();
+    return;
+  }
+
+  runHeuristicAnalysis();
+}
+
+async function runAiAnalysis() {
+  if (!currentImageFile) return;
+
+  const base = backendUrlInput.value.trim().replace(/\/$/, "");
+  if (!base) {
+    setDiagnosis(["رابط API غير صالح. حدّث الرابط أولاً."], "alert");
+    return;
+  }
+
+  setApiStatus("جاري إرسال الصورة إلى النموذج...", "warn");
+  const formData = new FormData();
+  formData.append("file", currentImageFile);
+
+  try {
+    const response = await fetch(`${base}/predict`, {
+      method: "POST",
+      body: formData
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || "تعذر الحصول على تشخيص من النموذج");
+    }
+
+    setApiStatus(`تمت القراءة بالنموذج ${payload.model_name}`, "ok");
+    const findings = mapApiFindings(payload.findings);
+    latestFindings = findings;
+
+    drawModelFindings(findings, payload.image_width, payload.image_height);
+    lastResultSnapshot = resultCtx.getImageData(0, 0, resultCanvas.width, resultCanvas.height);
+    renderFindings(findings);
+    renderApiReport(payload, findings);
+    exportBtn.disabled = false;
+    clearMeasurePoints();
+  } catch (error) {
+    setApiStatus(`فشل تحليل النموذج: ${error.message}`, "alert");
+    setDiagnosis(
+      [
+        "تعذر استخدام نموذج الذكاء الاصطناعي. تحقق من تشغيل الـ backend وتدريب/تحميل الأوزان.",
+        "يمكنك اختيار النمط التجريبي المحلي مؤقتاً من قائمة (نمط التحليل)."
+      ],
+      "alert"
+    );
+    reportBox.innerHTML = `<p class="report-summary">تعذر توليد تقرير AI.</p><p>${escapeHtml(
+      error.message
+    )}</p>`;
+  }
+}
+
+function mapApiFindings(findings = []) {
+  return findings.map((item, index) => {
+    const box = bboxFromPoints(item.polygon);
+    return {
+      idx: index + 1,
+      type: item.label,
+      title: labelArabic(item.label),
+      severity: item.severity || "warn",
+      confidence: item.confidence,
+      box,
+      polygon: item.polygon,
+      rationale: `مخرجات نموذج مدرّب (class=${item.label}).`,
+      recommendation: item.recommendation,
+      metrics: {
+        areaPx: Math.round(item.area_px || box.w * box.h),
+        widthPx: Math.round(box.w),
+        heightPx: Math.round(box.h)
+      }
+    };
+  });
+}
+
+function drawModelFindings(findings, modelW, modelH) {
+  const imageData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const enhanced = enhanceRadiograph(imageData);
+  latestGray = enhanced.gray;
+  drawEnhancedWithOverlays(latestGray, resultCanvas.width, resultCanvas.height, []);
+
+  const scaleX = resultCanvas.width / modelW;
+  const scaleY = resultCanvas.height / modelH;
+
+  for (const finding of findings) {
+    const color = finding.severity === "alert" ? "#d53232" : "#d98007";
+    const pts = (finding.polygon || []).map((p) => ({ x: p.x * scaleX, y: p.y * scaleY }));
+
+    if (pts.length >= 3) {
+      resultCtx.beginPath();
+      resultCtx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) resultCtx.lineTo(pts[i].x, pts[i].y);
+      resultCtx.closePath();
+      resultCtx.fillStyle = finding.severity === "alert" ? "rgba(213,50,50,0.15)" : "rgba(217,128,7,0.14)";
+      resultCtx.strokeStyle = color;
+      resultCtx.lineWidth = 2;
+      resultCtx.setLineDash([7, 4]);
+      resultCtx.fill();
+      resultCtx.stroke();
+      resultCtx.setLineDash([]);
+
+      const minX = Math.min(...pts.map((p) => p.x));
+      const minY = Math.min(...pts.map((p) => p.y));
+      resultCtx.fillStyle = color;
+      resultCtx.font = "bold 12px Arial";
+      resultCtx.fillText(`#${finding.idx} ${finding.title}`, minX + 2, Math.max(14, minY - 6));
+      continue;
+    }
+
+    resultCtx.strokeStyle = color;
+    resultCtx.strokeRect(finding.box.x * scaleX, finding.box.y * scaleY, finding.box.w * scaleX, finding.box.h * scaleY);
+  }
+}
+
+function renderApiReport(payload, findings) {
+  const hasCritical = findings.some((f) => f.severity === "alert");
+  const criticalCount = findings.filter((f) => f.severity === "alert").length;
+  const warnCount = findings.filter((f) => f.severity === "warn").length;
+
+  if (!findings.length) {
+    reportBox.innerHTML = `
+      <p class="report-summary">${escapeHtml(payload.summary)}</p>
+      <p>النموذج المستخدم: ${escapeHtml(payload.model_name)}</p>
+      <p>التوصية: في حال الشك السريري رغم سلبية النموذج، أعد التدريب ببيانات من نفس الجهاز/العيادة وعدّل عتبة الثقة.</p>
+      <p>${escapeHtml(payload.uncertainty_note || "")}</p>
+    `;
+    return;
+  }
+
+  const listHtml = findings
+    .map((item) => {
+      const loc = describeLocation(item.box.cx / sourceCanvas.width, item.box.cy / sourceCanvas.height);
+      return `
+        <li>
+          <span class="report-tag ${item.severity}">#${item.idx}</span>
+          <strong>${item.title}</strong><br/>
+          <span>الثقة: ${Math.round(item.confidence * 100)}%</span><br/>
+          <span>الموقع التقريبي: ${loc}</span><br/>
+          <span>المساحة: ${item.metrics.areaPx} بكسل | الأبعاد: ${item.metrics.widthPx}×${item.metrics.heightPx}</span><br/>
+          <span>سبب التصنيف: ${item.rationale}</span><br/>
+          <span>المتابعة: ${item.recommendation}</span>
+        </li>
+      `;
+    })
+    .join("");
+
+  reportBox.innerHTML = `
+    <p class="report-summary">${escapeHtml(payload.summary)}</p>
+    <p>النموذج: ${escapeHtml(payload.model_name)} | آفات عالية الشدة: ${criticalCount} | متوسطة: ${warnCount}</p>
+    <p>${hasCritical ? "توجد آفات ذات أولوية تتطلب ربطًا سريريًا عاجلاً." : "لا توجد مؤشرات عالية الشدة حسب إعدادات الثقة الحالية."}</p>
+    <ol class="report-findings">${listHtml}</ol>
+    <p>${escapeHtml(payload.uncertainty_note || "")}</p>
+  `;
+}
+
+function runHeuristicAnalysis() {
   const imageData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
   const enhanced = enhanceRadiograph(imageData);
   latestGray = enhanced.gray;
@@ -62,6 +258,7 @@ function runAnalysis() {
   latestFindings = findings;
 
   drawEnhancedWithOverlays(enhanced.gray, enhanced.width, enhanced.height, findings);
+  lastResultSnapshot = resultCtx.getImageData(0, 0, resultCanvas.width, resultCanvas.height);
   renderFindings(findings);
   renderDetailedReport(findings, enhanced.quality);
   exportBtn.disabled = false;
@@ -112,9 +309,7 @@ function detectDetailedFindings(gray, width, height) {
   const strongThreshold = percentile(gray, 10);
 
   const mask = new Uint8Array(gray.length);
-  for (let i = 0; i < gray.length; i++) {
-    mask[i] = gray[i] < lowThreshold ? 1 : 0;
-  }
+  for (let i = 0; i < gray.length; i++) mask[i] = gray[i] < lowThreshold ? 1 : 0;
 
   const components = connectedComponents(mask, gray, width, height, 40, 7500);
   const findings = [];
@@ -128,21 +323,18 @@ function detectDetailedFindings(gray, width, height) {
     const severeDark = comp.meanGray < strongThreshold;
 
     const confidenceBase =
-      0.42 +
-      Math.min(0.22, Math.max(0, darkness) * 0.35) +
-      Math.min(0.2, comp.area / 3200) +
-      Math.min(0.12, density * 0.2);
+      0.42 + Math.min(0.22, Math.max(0, darkness) * 0.35) + Math.min(0.2, comp.area / 3200) + Math.min(0.12, density * 0.2);
 
     if (yRatio < 0.45 && (xRatio < 0.28 || xRatio > 0.72) && comp.area > 70 && comp.area < 3500) {
       findings.push(
         buildFinding({
           type: "class_ii_caries",
-          title: "اشتباه نخر صنف ثاني",
+          title: "اشتباه نخر صنف ثاني (تجريبي)",
           severity: severeDark ? "alert" : "warn",
           confidence: confidenceBase + (severeDark ? 0.08 : 0),
           box: comp,
-          rationale: "منطقة شعاعية منخفضة الكثافة في المنطقة القريبة التاجية مع حدود موضعية.",
-          recommendation: "فحص سريري للسطح القريب + اختبار حيوية السن + مقارنة بصورة إضافية bitewing إن أمكن."
+          rationale: "خوارزمية محلية تعتمد على شدة الكثافة فقط.",
+          recommendation: "التحقق بنموذج مدرب + فحص سريري."
         })
       );
       continue;
@@ -152,12 +344,12 @@ function detectDetailedFindings(gray, width, height) {
       findings.push(
         buildFinding({
           type: "apical_lesion",
-          title: "اشتباه آفة ذروية",
+          title: "اشتباه آفة ذروية (تجريبي)",
           severity: "alert",
           confidence: confidenceBase + 0.06,
           box: comp,
-          rationale: "وجود منطقة منخفضة الكثافة حول الذروة مع شكل بؤري وحدود يمكن تمييزها.",
-          recommendation: "ربطها بالأعراض السريرية واختبارات القرع/الجس وحيوية اللب وتقييم متابعة شعاعية."
+          rationale: "خوارزمية محلية تعتمد على التباين.",
+          recommendation: "التحقق بنموذج مدرب + ربط سريري."
         })
       );
       continue;
@@ -167,12 +359,12 @@ function detectDetailedFindings(gray, width, height) {
       findings.push(
         buildFinding({
           type: "root_radiolucency",
-          title: "اشتباه تبدل شعاعي على مسار الجذر",
+          title: "اشتباه تبدل جذري (تجريبي)",
           severity: "warn",
           confidence: confidenceBase,
           box: comp,
-          rationale: "منطقة طولية منخفضة الكثافة على امتداد الجذر وقد ترتبط بتبدل نسجي موضعي.",
-          recommendation: "مقارنة الإسقاطات الشعاعية وتقييم سلامة الجذر والنسج الداعمة سريريًا."
+          rationale: "قراءة استكشافية غير مدربة.",
+          recommendation: "التحقق بنموذج مدرب + صور إضافية."
         })
       );
     }
@@ -192,7 +384,13 @@ function buildFinding(item) {
       widthPx: item.box.w,
       heightPx: item.box.h,
       centroid: { x: item.box.cx, y: item.box.cy }
-    }
+    },
+    polygon: [
+      { x: item.box.x, y: item.box.y },
+      { x: item.box.x + item.box.w, y: item.box.y },
+      { x: item.box.x + item.box.w, y: item.box.y + item.box.h },
+      { x: item.box.x, y: item.box.y + item.box.h }
+    ]
   };
 }
 
@@ -300,7 +498,7 @@ function renderFindings(findings) {
   if (findings.length === 0) {
     const li = document.createElement("li");
     li.className = "ok";
-    li.textContent = "لم يتم رصد مؤشرات مرضية واضحة عبر هذه القراءة الآلية. يوصى بالمطابقة مع الفحص السريري.";
+    li.textContent = "لم يتم رصد آفة ضمن الإعدادات الحالية. لا يعني هذا سلامة مطلقة، ويجب المطابقة سريريًا.";
     diagnosisList.appendChild(li);
     return;
   }
@@ -324,14 +522,14 @@ function renderDetailedReport(findings, quality) {
 
   if (findings.length === 0) {
     reportBox.innerHTML = `
-      <p class="report-summary">ملخص القراءة: لا توجد آفات شعاعية مؤكدة آلياً.</p>
-      <p>جودة الصورة: ${quality.qualityLabel} (مجال ديناميكي: ${Math.round(quality.dynamicRange)}، تباين: ${quality.contrast.toFixed(1)}).</p>
-      <p>التوصية: المتابعة السريرية واختبارات الحيوية عند وجود أعراض.</p>
+      <p class="report-summary">ملخص القراءة التجريبية: لا توجد آفات مؤكدة.</p>
+      <p>جودة الصورة: ${quality.qualityLabel} (المجال: ${Math.round(quality.dynamicRange)}، التباين: ${quality.contrast.toFixed(1)}).</p>
+      <p>مهم: هذه قراءة محلية غير مدربة، استخدم نمط API بعد تدريب نموذج فعلي.</p>
     `;
     return;
   }
 
-  const summary = `تم رصد ${findings.length} منطقة مشتبهة (شدة عالية: ${severityCount.alert || 0}، متوسطة: ${severityCount.warn || 0}).`;
+  const summary = `تم رصد ${findings.length} منطقة مشتبهة (عالية: ${severityCount.alert || 0}، متوسطة: ${severityCount.warn || 0}).`;
 
   const findingsHtml = findings
     .map((item) => {
@@ -340,12 +538,11 @@ function renderDetailedReport(findings, quality) {
         <li>
           <span class="report-tag ${item.severity}">#${item.idx}</span>
           <strong>${item.title}</strong><br/>
-          <span>الموقع التقريبي: ${loc}</span><br/>
-          <span>حدود المنطقة: x=${Math.round(item.box.x)}..${Math.round(item.box.x + item.box.w)} ، y=${Math.round(item.box.y)}..${Math.round(item.box.y + item.box.h)}</span><br/>
+          <span>الموقع: ${loc}</span><br/>
           <span>المساحة: ${item.metrics.areaPx} بكسل | الأبعاد: ${item.metrics.widthPx}×${item.metrics.heightPx}</span><br/>
           <span>سبب الاشتباه: ${item.rationale}</span><br/>
-          <span>الثقة التقديرية: ${Math.round(item.confidence * 100)}%</span><br/>
-          <span>مقترح المتابعة: ${item.recommendation}</span>
+          <span>الثقة: ${Math.round(item.confidence * 100)}%</span><br/>
+          <span>المتابعة: ${item.recommendation}</span>
         </li>
       `;
     })
@@ -353,10 +550,20 @@ function renderDetailedReport(findings, quality) {
 
   reportBox.innerHTML = `
     <p class="report-summary">ملخص القراءة: ${summary}</p>
-    <p>جودة الصورة: ${quality.qualityLabel} (مجال ديناميكي: ${Math.round(quality.dynamicRange)}، تباين: ${quality.contrast.toFixed(1)}).</p>
+    <p>جودة الصورة: ${quality.qualityLabel}</p>
     <ol class="report-findings">${findingsHtml}</ol>
-    <p>تنبيه: هذا التقرير آلي مبدئي ويحتاج تأكيدًا سريريًا وشعاعيًا قبل اتخاذ قرار علاجي.</p>
+    <p>تنبيه: النمط التجريبي ليس بديلاً عن نموذج متدرب.</p>
   `;
+}
+
+function labelArabic(label) {
+  const map = {
+    class_ii_caries: "نخر صنف ثاني",
+    apical_lesion: "آفة ذروية",
+    pdl_widening: "اتساع الرباط حول الذروة",
+    resorption: "امتصاص"
+  };
+  return map[label] || `اشتباه: ${label}`;
 }
 
 function describeLocation(xRatio, yRatio) {
@@ -373,6 +580,12 @@ function setDiagnosis(messages, className) {
     li.textContent = message;
     diagnosisList.appendChild(li);
   });
+}
+
+function setApiStatus(message, className) {
+  apiStatus.textContent = message;
+  apiStatus.classList.remove("ok", "warn", "alert");
+  if (className) apiStatus.classList.add(className);
 }
 
 function setReportPlaceholder() {
@@ -393,8 +606,9 @@ function captureMeasurePoint(event) {
 }
 
 function redrawCanvasWithMeasurements() {
-  if (!latestGray) return;
-  drawEnhancedWithOverlays(latestGray, resultCanvas.width, resultCanvas.height, latestFindings);
+  if (!latestGray || !lastResultSnapshot) return;
+  resultCtx.putImageData(lastResultSnapshot, 0, 0);
+
   if (measurePoints.length === 0) return;
 
   resultCtx.strokeStyle = "#0a6db5";
@@ -433,23 +647,22 @@ function updateWorkLengthText() {
   const workingLow = Math.max(0, anatomical - 1);
   const workingHigh = Math.max(0, anatomical - 0.5);
   workLengthOutput.textContent =
-    `الطول التشريحي التقريبي: ${anatomical.toFixed(2)} مم | ` +
-    `الطول العامل المقترح: بين ${workingLow.toFixed(2)} و ${workingHigh.toFixed(2)} مم`;
+    `الطول التشريحي التقريبي: ${anatomical.toFixed(2)} مم | الطول العامل المقترح: بين ${workingLow.toFixed(2)} و ${workingHigh.toFixed(2)} مم`;
 }
 
 function clearMeasurePoints() {
   measurePoints = [];
   workLengthOutput.textContent = "لم يتم القياس بعد.";
-  if (imageReady && latestGray) {
-    drawEnhancedWithOverlays(latestGray, resultCanvas.width, resultCanvas.height, latestFindings);
-  }
+  if (lastResultSnapshot) resultCtx.putImageData(lastResultSnapshot, 0, 0);
 }
 
 function resetAll() {
   imageInput.value = "";
   imageReady = false;
+  currentImageFile = null;
   latestGray = null;
   latestFindings = [];
+  lastResultSnapshot = null;
   measurePoints = [];
   sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
   resultCtx.clearRect(0, 0, resultCanvas.width, resultCanvas.height);
@@ -499,4 +712,31 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+function bboxFromPoints(points) {
+  if (!points || !points.length) return { x: 0, y: 0, w: 0, h: 0, cx: 0, cy: 0 };
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const yMin = Math.min(...ys);
+  const yMax = Math.max(...ys);
+  return {
+    x: xMin,
+    y: yMin,
+    w: Math.max(1, xMax - xMin),
+    h: Math.max(1, yMax - yMin),
+    cx: (xMin + xMax) / 2,
+    cy: (yMin + yMax) / 2
+  };
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }

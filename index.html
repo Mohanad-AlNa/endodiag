@@ -30,6 +30,22 @@
 
       <section class="card">
         <h2>2) المعالجة والتحليل</h2>
+        <div class="mode-controls">
+          <label for="analysisMode">نمط التحليل</label>
+          <select id="analysisMode">
+            <option value="ai" selected>نموذج ذكاء اصطناعي (Backend API)</option>
+            <option value="heuristic">خوارزمية محلية تجريبية (أقل دقة)</option>
+          </select>
+          <label for="backendUrl">رابط الـ API</label>
+          <input
+            id="backendUrl"
+            type="text"
+            value="http://127.0.0.1:8000"
+            placeholder="http://127.0.0.1:8000"
+          />
+          <button id="checkApiBtn" class="secondary-btn">فحص الاتصال بالنموذج</button>
+          <span id="apiStatus" class="api-status">لم يتم فحص الاتصال بعد.</span>
+        </div>
         <div class="actions">
           <button id="analyzeBtn" class="primary-btn" disabled>معالجة وتشخيص</button>
           <button id="resetBtn" class="secondary-btn" disabled>إعادة ضبط</button>
