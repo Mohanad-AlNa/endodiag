@@ -133,6 +133,54 @@ canvas {
   color: var(--ok);
 }
 
+.report-box {
+  border: 1px solid #d6e2ee;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fbfe;
+  line-height: 1.7;
+}
+
+.report-summary {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.report-findings {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.report-findings li {
+  background: #fff;
+  border: 1px solid #e2ecf5;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.report-tag {
+  display: inline-block;
+  font-size: 0.82rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  margin-inline-end: 6px;
+  color: #fff;
+}
+
+.report-tag.alert {
+  background: var(--danger);
+}
+
+.report-tag.warn {
+  background: var(--warn);
+}
+
+.report-tag.ok {
+  background: var(--ok);
+}
+
 .measure-row {
   display: flex;
   flex-wrap: wrap;
